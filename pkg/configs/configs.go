@@ -2,6 +2,7 @@ package configs
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/rules"
@@ -26,8 +27,9 @@ type Config struct {
 // _version_ of a configuration a unique ID and guarantees that later versions
 // have greater IDs.
 type View struct {
-	ID     ID     `json:"id"`
-	Config Config `json:"config"`
+	ID        ID     `json:"id"`
+	Config    Config `json:"config"`
+	DeletedAt time.Time
 }
 
 // GetVersionedRulesConfig specializes the view to just the rules config.

@@ -3,13 +3,14 @@ package postgres
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
+	"time"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/go-kit/kit/log/level"
 	_ "github.com/lib/pq"                         // Import the postgres sql driver
 	_ "github.com/mattes/migrate/driver/postgres" // Import the postgres migrations driver
 	"github.com/mattes/migrate/migrate"
+	"github.com/pkg/errors"
 	"github.com/weaveworks/cortex/pkg/configs"
 	"github.com/weaveworks/cortex/pkg/util"
 )
@@ -19,6 +20,8 @@ const (
 	// schema so this isn't needed.
 	entityType = "org"
 	subsystem  = "cortex"
+	// timeout waiting for database connection to be established
+	dbTimeout = 5 * time.Minute
 )
 
 var (
@@ -42,8 +45,32 @@ type dbProxy interface {
 	Prepare(query string) (*sql.Stmt, error)
 }
 
+// dbWait waits for database connection to be established
+func dbWait(db *sql.DB) error {
+	deadline := time.Now().Add(dbTimeout)
+	var err error
+	for tries := 0; time.Now().Before(deadline); tries++ {
+		err = db.Ping()
+		if err == nil {
+			return nil
+		}
+		level.Warn(util.Logger).Log("msg", "db connection not established, retrying...", "error", err)
+		time.Sleep(time.Second << uint(tries))
+	}
+	return errors.Wrapf(err, "db connection not established after %s", dbTimeout)
+}
+
 // New creates a new postgres DB
 func New(uri, migrationsDir string) (DB, error) {
+	db, err := sql.Open("postgres", uri)
+	if err != nil {
+		return DB{}, errors.Wrap(err, "cannot open postgres db")
+	}
+
+	if err := dbWait(db); err != nil {
+		return DB{}, errors.Wrap(err, "cannot establish db connection")
+	}
+
 	if migrationsDir != "" {
 		level.Info(util.Logger).Log("msg", "running database migrations...")
 		if errs, ok := migrate.UpSync(uri, migrationsDir); !ok {
@@ -53,7 +80,7 @@ func New(uri, migrationsDir string) (DB, error) {
 			return DB{}, errors.New("database migrations failed")
 		}
 	}
-	db, err := sql.Open("postgres", uri)
+
 	return DB{
 		dbProxy:              db,
 		StatementBuilderType: statementBuilder(db),
@@ -223,6 +250,57 @@ func (d DB) GetRulesConfigs(since configs.ID) (map[string]configs.VersionedRules
 		activeConfig,
 		squirrel.Gt{"id": since},
 	})
+}
+
+// GetLastConfig gets a last configuration (active or deleted).
+func (d DB) GetLastConfig(userID string) (configs.View, error) {
+	var cfgView configs.View
+	var cfgBytes []byte
+	err := d.Select("id", "config").
+		From("configs").
+		Where(squirrel.Eq{"owner_id": userID}).
+		OrderBy("id DESC").
+		Limit(1).
+		QueryRow().Scan(&cfgView.ID, &cfgBytes)
+	if err != nil {
+		return cfgView, err
+	}
+	err = json.Unmarshal(cfgBytes, &cfgView.Config)
+	log.Infof("get last config bytes: %s", cfgBytes)
+	return cfgView, err
+}
+
+// SetDeletedAtConfig sets a deletedAt for configuration.
+func (d DB) SetDeletedAtConfig(userID string, deletedAt time.Time, cfg configs.Config) error {
+	cfgBytes, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("set deletedA to %s for %s", deletedAt, cfgBytes)
+	_, err = d.Insert("configs").
+		Columns("owner_id", "owner_type", "subsystem", "deleted_at", "config").
+		Values(userID, entityType, subsystem, deletedAt, cfgBytes).
+		Exec()
+	return err
+}
+
+// DeactivateConfig deactivates a configuration.
+func (d DB) DeactivateConfig(userID string) error {
+	cfg, err := d.GetLastConfig(userID)
+	if err != nil {
+		return err
+	}
+	return d.SetDeletedAtConfig(userID, time.Now(), cfg.Config)
+}
+
+// RestoreConfig restores deactivated configuration.
+func (d DB) RestoreConfig(userID string) error {
+	cfg, err := d.GetLastConfig(userID)
+	if err != nil {
+		return err
+	}
+	return d.SetDeletedAtConfig(userID, time.Time{}, cfg.Config)
 }
 
 // Transaction runs the given function in a postgres transaction. If fn returns
