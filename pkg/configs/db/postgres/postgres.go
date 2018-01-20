@@ -25,8 +25,7 @@ const (
 )
 
 var (
-	activeConfig = squirrel.Eq{
-		"deleted_at": nil,
+	allConfigs = squirrel.Eq{
 		"owner_type": entityType,
 		"subsystem":  subsystem,
 	}
@@ -124,7 +123,7 @@ func (d DB) GetConfig(userID string) (configs.View, error) {
 	var cfgBytes []byte
 	err := d.Select("id", "config").
 		From("configs").
-		Where(squirrel.And{activeConfig, squirrel.Eq{"owner_id": userID}}).
+		Where(squirrel.And{allConfigs, squirrel.Eq{"owner_id": userID}}).
 		OrderBy("id DESC").
 		Limit(1).
 		QueryRow().Scan(&cfgView.ID, &cfgBytes)
@@ -150,13 +149,13 @@ func (d DB) SetConfig(userID string, cfg configs.Config) error {
 
 // GetAllConfigs gets all of the configs.
 func (d DB) GetAllConfigs() (map[string]configs.View, error) {
-	return d.findConfigs(activeConfig)
+	return d.findConfigs(allConfigs)
 }
 
 // GetConfigs gets all of the configs that have changed recently.
 func (d DB) GetConfigs(since configs.ID) (map[string]configs.View, error) {
 	return d.findConfigs(squirrel.And{
-		activeConfig,
+		allConfigs,
 		squirrel.Gt{"id": since},
 	})
 }
@@ -241,13 +240,13 @@ func (d DB) findRulesConfigs(filter squirrel.Sqlizer) (map[string]configs.Versio
 
 // GetAllRulesConfigs gets all alertmanager configs for all users.
 func (d DB) GetAllRulesConfigs() (map[string]configs.VersionedRulesConfig, error) {
-	return d.findRulesConfigs(activeConfig)
+	return d.findRulesConfigs(allConfigs)
 }
 
 // GetRulesConfigs gets all the alertmanager configs that have changed since a given config.
 func (d DB) GetRulesConfigs(since configs.ID) (map[string]configs.VersionedRulesConfig, error) {
 	return d.findRulesConfigs(squirrel.And{
-		activeConfig,
+		allConfigs,
 		squirrel.Gt{"id": since},
 	})
 }
@@ -266,7 +265,6 @@ func (d DB) GetLastConfig(userID string) (configs.View, error) {
 		return cfgView, err
 	}
 	err = json.Unmarshal(cfgBytes, &cfgView.Config)
-	log.Infof("get last config bytes: %s", cfgBytes)
 	return cfgView, err
 }
 
@@ -276,8 +274,6 @@ func (d DB) SetDeletedAtConfig(userID string, deletedAt time.Time, cfg configs.C
 	if err != nil {
 		return err
 	}
-
-	log.Infof("set deletedA to %s for %s", deletedAt, cfgBytes)
 	_, err = d.Insert("configs").
 		Columns("owner_id", "owner_type", "subsystem", "deleted_at", "config").
 		Values(userID, entityType, subsystem, deletedAt, cfgBytes).
@@ -294,7 +290,7 @@ func (d DB) DeactivateConfig(userID string) error {
 	return d.SetDeletedAtConfig(userID, time.Now(), cfg.Config)
 }
 
-// RestoreConfig restores deactivated configuration.
+// RestoreConfig restores configuration.
 func (d DB) RestoreConfig(userID string) error {
 	cfg, err := d.GetLastConfig(userID)
 	if err != nil {

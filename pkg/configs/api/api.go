@@ -228,24 +228,13 @@ func (a *API) deactivateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	logger := util.WithContext(r.Context(), util.Logger)
 
-	fmt.Printf("deactivateConfigs org ID %s\n", userID)
-
-	if _, err := a.db.GetConfig(userID); err != nil {
-		if err == sql.ErrNoRows {
-			http.Error(w, "No configuration", http.StatusNotFound)
-			return
-		}
-		level.Error(logger).Log("msg", "error getting config", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	if err := a.db.DeactivateConfig(userID); err != nil {
-		level.Error(logger).Log("msg", "error deactivating configs", "err", err)
+		level.Error(logger).Log("msg", "error deactivating config", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	level.Info(logger).Log("msg", "config deactivated", "userID", userID)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (a *API) restoreConfig(w http.ResponseWriter, r *http.Request) {
@@ -255,22 +244,12 @@ func (a *API) restoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logger := util.WithContext(r.Context(), util.Logger)
-	fmt.Printf("restore org ID %s\n", userID)
-
-	if _, err := a.db.GetConfig(userID); err != nil {
-		if err == sql.ErrNoRows {
-			http.Error(w, "No configuration", http.StatusNotFound)
-			return
-		}
-		level.Error(logger).Log("msg", "error getting config", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
 	if err := a.db.RestoreConfig(userID); err != nil {
 		level.Error(logger).Log("msg", "error restoring config", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	level.Info(logger).Log("msg", "config restored", "userID", userID)
 	w.WriteHeader(http.StatusCreated)
 }
