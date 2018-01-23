@@ -2,6 +2,8 @@ package ruler
 
 import (
 	native_ctx "context"
+	"crypto/md5"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -133,9 +135,11 @@ func (rn *rulerNotifier) run() {
 		if err := rn.sdManager.Run(rn.sdCtx); err != nil {
 			level.Error(rn.logger).Log("msg", "error starting notifier discovery manager", "err", err)
 		}
+		rn.wg.Done()
 	}()
 	go func() {
 		rn.notifier.Run(rn.sdManager.SyncCh())
+		rn.wg.Done()
 	}()
 }
 
@@ -144,13 +148,19 @@ func (rn *rulerNotifier) applyConfig(cfg *config.Config) error {
 		return err
 	}
 
-	amConfigs := cfg.AlertingConfig.AlertmanagerConfigs
-	if len(amConfigs) != 1 {
-		return fmt.Errorf("ruler alerting config should have exactly one AlertmanagerConfig")
+	sdCfgs := make(map[string]sd_config.ServiceDiscoveryConfig)
+	for _, v := range cfg.AlertingConfig.AlertmanagerConfigs {
+		// AlertmanagerConfigs doesn't hold an unique identifier so we use the config hash as the identifier.
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		// This hash needs to be identical to the one computed in the notifier in
+		// https://github.com/prometheus/prometheus/blob/719c579f7b917b384c3d629752dea026513317dc/notifier/notifier.go#L265
+		// This kind of sucks, but it's done in Prometheus in main.go in the same way.
+		sdCfgs[fmt.Sprintf("%x", md5.Sum(b))] = v.ServiceDiscoveryConfig
 	}
-	return rn.sdManager.ApplyConfig(
-		map[string]sd_config.ServiceDiscoveryConfig{"ruler": amConfigs[0].ServiceDiscoveryConfig},
-	)
+	return rn.sdManager.ApplyConfig(sdCfgs)
 }
 
 func (rn *rulerNotifier) stop() {
