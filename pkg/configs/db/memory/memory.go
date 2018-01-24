@@ -53,7 +53,9 @@ func (d *DB) GetConfigs(since configs.ID) (map[string]configs.View, error) {
 	return cfgs, nil
 }
 
-// SetDeletedAtConfig sets deletedAt for last configuration for a user.
+// SetDeletedAtConfig sets a deletedAt for configuration
+// by adding a single new row with deleted_at set
+// the same as SetConfig is actually insert
 func (d *DB) SetDeletedAtConfig(userID string, deletedAt time.Time) error {
 	cv, err := d.GetConfig(userID)
 	if err != nil {

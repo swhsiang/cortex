@@ -251,24 +251,9 @@ func (d DB) GetRulesConfigs(since configs.ID) (map[string]configs.VersionedRules
 	})
 }
 
-// GetLastConfig gets a last configuration (active or deleted).
-func (d DB) GetLastConfig(userID string) (configs.View, error) {
-	var cfgView configs.View
-	var cfgBytes []byte
-	err := d.Select("id", "config").
-		From("configs").
-		Where(squirrel.Eq{"owner_id": userID}).
-		OrderBy("id DESC").
-		Limit(1).
-		QueryRow().Scan(&cfgView.ID, &cfgBytes)
-	if err != nil {
-		return cfgView, err
-	}
-	err = json.Unmarshal(cfgBytes, &cfgView.Config)
-	return cfgView, err
-}
-
-// SetDeletedAtConfig sets a deletedAt for configuration.
+// SetDeletedAtConfig sets a deletedAt for configuration
+// by adding a single new row with deleted_at set
+// the same as SetConfig is actually insert
 func (d DB) SetDeletedAtConfig(userID string, deletedAt time.Time, cfg configs.Config) error {
 	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
@@ -283,7 +268,7 @@ func (d DB) SetDeletedAtConfig(userID string, deletedAt time.Time, cfg configs.C
 
 // DeactivateConfig deactivates a configuration.
 func (d DB) DeactivateConfig(userID string) error {
-	cfg, err := d.GetLastConfig(userID)
+	cfg, err := d.GetConfig(userID)
 	if err != nil {
 		return err
 	}
@@ -292,7 +277,7 @@ func (d DB) DeactivateConfig(userID string) error {
 
 // RestoreConfig restores configuration.
 func (d DB) RestoreConfig(userID string) error {
-	cfg, err := d.GetLastConfig(userID)
+	cfg, err := d.GetConfig(userID)
 	if err != nil {
 		return err
 	}

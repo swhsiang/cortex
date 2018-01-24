@@ -27,9 +27,9 @@ type Config struct {
 // _version_ of a configuration a unique ID and guarantees that later versions
 // have greater IDs.
 type View struct {
-	ID        ID     `json:"id"`
-	Config    Config `json:"config"`
-	DeletedAt time.Time
+	ID        ID        `json:"id"`
+	Config    Config    `json:"config"`
+	DeletedAt time.Time `json:"deleted_at"`
 }
 
 // GetVersionedRulesConfig specializes the view to just the rules config.
